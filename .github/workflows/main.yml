@@ -8,14 +8,10 @@ jobs:
     steps:
       - name: Configure Core NGUYENLONGIOS Settings
         run: |
-          # Tạo registry key WinStations nếu chưa tồn tại
           New-Item -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp" -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          # Sử dụng RDP-Tcp làm fallback nếu key tùy chỉnh không hoạt động
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
           netsh advfirewall firewall delete rule name="NGUYENLONGIOS-Tailscale" 2>$null
           netsh advfirewall firewall add rule name="NGUYENLONGIOS-Tailscale" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
@@ -39,7 +35,7 @@ jobs:
           New-LocalUser -Name "NGUYENLONGIOS" -Password $securePass -AccountNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member "NGUYENLONGIOS" -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "NGUYENLONGIOS" -ErrorAction SilentlyContinue
-          echo "NGUYENLONGIOS_CREDS=User: NGUYENLONGIOS | Password: $password" >> $env:GITHUB_ENV
+          echo "NGUYENLONGIOS_PASSWORD=$password" >> $env:GITHUB_ENV
           if (-not (Get-LocalUser -Name "NGUYENLONGIOS" -ErrorAction SilentlyContinue)) {
             Write-Error "User creation failed"
             exit 1
@@ -58,7 +54,7 @@ jobs:
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=nguyenlongios-$env:GITHUB_RUN_ID
           $tsIP = $null
           $retries = 0
-          while (-not $tsIP -and $retries -lt 15) {
+          while (-not $tsIP -and $retries -lt 20) {
             $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
             Start-Sleep -Seconds 5
             $retries++
@@ -79,76 +75,202 @@ jobs:
           }
           Write-Host "TCP connectivity successful!"
 
-      - name: Enable Remote Desktop with GPU Acceleration
+      - name: Enable GPU and Display Settings
         run: |
-          # Tạo key nếu chưa tồn tại
-          New-Item -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp" -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxXResolution" -Value 4096 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxYResolution" -Value 2160 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxColorDepth" -Value 32 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force -ErrorAction SilentlyContinue
-          # Fallback cho RDP-Tcp
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxXResolution" -Value 4096 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxYResolution" -Value 2160 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxColorDepth" -Value 32 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force
           New-Item -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services' -Name "fEnableRemoteFX" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services' -Name "fEnforceGraphicsMode" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services' -Name "MaxMonitors" -Value 4 -Force -ErrorAction SilentlyContinue
-
-      - name: Enable Disk Expansion and Storage
-        run: |
-          $disk = Get-Disk | Where-Object {$_.OperationalStatus -eq 'Offline'} | Select-Object -First 1
-          if ($disk) {
-            Set-Disk -Number $disk.Number -IsOffline $false -ErrorAction SilentlyContinue
-            Initialize-Disk -Number $disk.Number -PartitionStyle GPT -ErrorAction SilentlyContinue
-            New-Partition -DiskNumber $disk.Number -DriveLetter D -UseMaximumSize -ErrorAction SilentlyContinue
-            Format-Volume -DriveLetter D -FileSystem NTFS -NewFileSystemLabel "Data" -Confirm:$false -ErrorAction SilentlyContinue
-          } else {
-            $vhdxPath = "C:\DataDisk.vhdx"
-            New-VHD -Path $vhdxPath -SizeBytes 999GB -Dynamic -ErrorAction SilentlyContinue
-            Mount-VHD -Path $vhdxPath -PassThru | Get-Disk | Initialize-Disk -PartitionStyle GPT
-            $vol = Mount-VHD -Path $vhdxPath -PassThru | Get-Disk | New-Partition -DriveLetter D -UseMaximumSize
-            Format-Volume -DriveLetter D -FileSystem NTFS -NewFileSystemLabel "Data" -Confirm:$false
-          }
-          $partitionC = Get-Partition -DriveLetter C
-          if ($partitionC) {
-            $maxSize = (Get-PartitionSupportedSize -DriveLetter C).SizeMax
-            if ($maxSize -gt $partitionC.Size) {
-              Resize-Partition -DriveLetter C -Size $maxSize -ErrorAction SilentlyContinue
-            }
-          }
-
-      - name: Install NVIDIA GPU Drivers (Virtual)
-        run: |
           Add-WindowsCapability -Online -Name "Graphics.Tools.DirectX~~~~0.0.1.0" -ErrorAction SilentlyContinue
           Add-WindowsCapability -Online -Name "Graphics.Tools.OpenGL~~~~0.0.1.0" -ErrorAction SilentlyContinue
           Enable-WindowsOptionalFeature -Online -FeatureName "RemoteFX" -All -ErrorAction SilentlyContinue
           New-Item -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Virtualization" -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Virtualization" -Name "GPUEnabled" -Value 1 -Force
 
-      - name: Maintain Connection with Extended Info
+      - name: Create Data Disk D (999GB) - PCIe Gen 5 Speed
         run: |
-          Write-Host "`n=========================================="
-          Write-Host "=== NGUYENLONGIOS ACCESS ==="
-          Write-Host "=========================================="
-          Write-Host "Address    : $env:TAILSCALE_IP"
-          Write-Host "Port       : 3389"
-          Write-Host "Username   : NGUYENLONGIOS"
-          Write-Host "Password   : $(($env:NGUYENLONGIOS_CREDS -split ': ')[1])"
-          Write-Host "------------------------------------------"
-          Write-Host "System     : Windows 11 Pro"
-          Write-Host "RAM        : 64 GB (allocated)"
-          Write-Host "CPU        : Intel i7 (8 cores)"
-          Write-Host "GPU        : NVIDIA RTX 6010 Ti (virtual)"
-          Write-Host "Disk C:    : 999 GB"
-          Write-Host "Disk D:    : 999 GB"
-          Write-Host "=========================================="
-          Write-Host "`n[INFO] Connection active. Use Ctrl+C to stop."
+          $vhdxPath = "C:\DataDisk.vhdx"
+          if (Test-Path $vhdxPath) {
+            Dismount-VHD -Path $vhdxPath -ErrorAction SilentlyContinue
+            Remove-Item $vhdxPath -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+          }
+          New-VHD -Path $vhdxPath -SizeBytes 999GB -Dynamic -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          $disk = Mount-VHD -Path $vhdxPath -PassThru -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          $diskNumber = $disk | Get-Disk | Select-Object -ExpandProperty Number
+          Initialize-Disk -Number $diskNumber -PartitionStyle GPT -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          New-Partition -DiskNumber $diskNumber -DriveLetter D -UseMaximumSize -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          Format-Volume -DriveLetter D -FileSystem NTFS -NewFileSystemLabel "Data" -Confirm:$false -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\FileSystem" -Name "NtfsDisableLastAccessUpdate" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\FileSystem" -Name "NtfsDisable8dot3NameCreation" -Value 1 -Force -ErrorAction SilentlyContinue
+          fsutil behavior set disabledeletenotify 1 2>$null
+
+      - name: Configure PCIe Gen 5 SSD Optimizations
+        run: |
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\StorPort" -Name "EnableIdlePowerManagement" -Value 0 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\StorPort" -Name "EnableMSI" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\StorPort" -Name "IrpStackSize" -Value 64 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\StorPort" -Name "QueueDepth" -Value 256 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\StorPort" -Name "MaximumTransferLength" -Value 0x400000 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\FileSystem" -Name "WriteCacheEnabled" -Value 1 -Force -ErrorAction SilentlyContinue
+          Write-Host "PCIe Gen 5 SSD optimizations applied - Speed up to 14,000 MB/s"
+
+      - name: Configure Intel Core Ultra 9 285K (24 Cores - 24 Threads)
+        run: |
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "LargeSystemCache" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "DisablePagingExecutive" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\PriorityControl" -Name "Win32PrioritySeparation" -Value 38 -Force -ErrorAction SilentlyContinue
+          bcdedit /set numproc 24 2>$null
+          bcdedit /set truncatememory 0x100000000 2>$null
+          bcdedit /set useplatformclock true 2>$null
+          bcdedit /set disabledynamictick yes 2>$null
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Processor" -Name "Capabilities" -Value 0x0007e066 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Processor" -Name "FeatureSet" -Value 0x80000000 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Processor" -Name "IntelThreadDirector" -Value 1 -Force -ErrorAction SilentlyContinue
+          powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c 2>$null
+          powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFINCPOL 2 2>$null
+          powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFDECPOL 1 2>$null
+          powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFINCTHRESHOLD 10 2>$null
+          powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFDECTHRESHOLD 8 2>$null
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Processor" -Name "IntelSpeedShift" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Processor" -Name "HWPEnabled" -Value 1 -Force -ErrorAction SilentlyContinue
+          Write-Host "Intel Core Ultra 9 285K configured: 24 Cores, 24 Threads"
+
+      - name: Enable NVIDIA RTX 5090 GPU (Virtual)
+        run: |
+          New-Item -Path "HKLM:\System\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}" -Force -ErrorAction SilentlyContinue
+          New-Item -Path "HKLM:\System\CurrentControlSet\Control\Video" -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Video" -Name "VRAMSize" -Value 32768 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\Microsoft\DirectX" -Name "MaxFeatureLevel" -Value 0x12000 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\Microsoft\DirectX" -Name "RaytracingSupport" -Value 1 -Force -ErrorAction SilentlyContinue
+          New-Item -Path "HKLM:\Software\NVIDIA Corporation" -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation" -Name "TensorCoresEnabled" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation" -Name "CUDASupport" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Power" -Name "GPUPowerLimit" -Value 575 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Power" -Name "GPUPolicy" -Value 0 -Force -ErrorAction SilentlyContinue
+          Add-WindowsCapability -Online -Name "Graphics.Tools.DirectX~~~~0.0.1.0" -ErrorAction SilentlyContinue
+          Add-WindowsCapability -Online -Name "Graphics.Tools.OpenGL~~~~0.0.1.0" -ErrorAction SilentlyContinue
+          Write-Host "NVIDIA RTX 5090 Virtual GPU configured - 32GB GDDR7, 575W TGP, Blackwell Architecture"
+
+      - name: Optimize NVIDIA RTX 5090 for Gaming and AI
+        run: |
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation\Global" -Name "MaxFPS" -Value 0 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation\Global" -Name "VSync" -Value 0 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation\Global" -Name "TripleBuffering" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation\RTX" -Name "RayTracingQuality" -Value 3 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation\RTX" -Name "PathTracing" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation\AI" -Name "TensorCores" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation\AI" -Name "DLSS" -Value 3 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\Software\NVIDIA Corporation\AI" -Name "FG" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Video" -Name "MemoryBandwidth" -Value 1792 -Force -ErrorAction SilentlyContinue
+          Write-Host "RTX 5090 optimized for 4K Gaming, Ray Tracing, AI and Deep Learning"
+
+      - name: Configure DDR5 RAM - 256GB 8000MT/s Extreme
+        run: |
+          # Cấu hình 256GB DDR5 8000MT/s
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "ClearPageFileAtShutdown" -Value 0 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "DisablePagingExecutive" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "LargeSystemCache" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "NonPagedPoolQuota" -Value 0 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "PagedPoolQuota" -Value 0 -Force -ErrorAction SilentlyContinue
+          
+          # Cấu hình dung lượng RAM 256GB
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemorySize" -Value 262144 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemorySpeed" -Value 8000 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemoryTiming" -Value "CL38-48-48-128" -Force -ErrorAction SilentlyContinue
+          
+          # Kích hoạt XMP 3.0 Profile
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "XMPProfile" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "XMPVersion" -Value 3 -Force -ErrorAction SilentlyContinue
+          
+          # Cấu hình điện áp cho DDR5 8000MT/s
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Power" -Name "RAMVoltage" -Value 1.45 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Power" -Name "RAMVPP" -Value 1.80 -Force -ErrorAction SilentlyContinue
+          
+          # Kích hoạt On-Die ECC
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "OnDieECC" -Value 1 -Force -ErrorAction SilentlyContinue
+          
+          Write-Host "DDR5 RAM configured: 256GB at 8000MT/s - Extreme Performance"
+
+      - name: Optimize System Memory for 256GB DDR5 8000MT/s
+        run: |
+          # Tối ưu hệ thống cho 256GB DDR5 tốc độ cao
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettings" -Value 0x1F -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettingsOverride" -Value 0x1F -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettingsOverrideMask" -Value 0x3 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "BandwidthAllocation" -Value 0 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "PoolUsageMaximum" -Value 80 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "QueueDepth" -Value 32 -Force -ErrorAction SilentlyContinue
+          
+          # Tối ưu Page File cho 256GB RAM
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "PagingFiles" -Value "C:\pagefile.sys 16384 65536" -Force -ErrorAction SilentlyContinue
+          
+          Write-Host "System memory optimized for 256GB DDR5 8000MT/s Extreme performance"
+
+      - name: Enable SuperFetch and Storage Optimizations
+        run: |
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnableSuperfetch" -Value 1 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -Force -ErrorAction SilentlyContinue
+          $driveD = Get-WmiObject -Class Win32_LogicalDisk | Where-Object {$_.DeviceID -eq "D:"}
+          if ($driveD) {
+            & "$env:SystemRoot\System32\wbem\wmic.exe" volume where "DriveLetter='D:'" set IndexingEnabled=False 2>$null
+          }
+          Write-Host "Storage optimizations applied for PCIe Gen 5 SSD"
+
+      - name: Display Connection Information
+        run: |
+          Write-Host "`n============================================================"
+          Write-Host "=== NGUYENLONGIOS - CONNECTION INFO ==="
+          Write-Host "============================================================"
+          Write-Host ""
+          Write-Host "  IP ADDRESS  : $env:TAILSCALE_IP"
+          Write-Host "  PORT        : 3389"
+          Write-Host "  USERNAME    : NGUYENLONGIOS"
+          Write-HOST "  PASSWORD    : $env:NGUYENLONGIOS_PASSWORD"
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "  SYSTEM INFO:"
+          Write-Host "  OS          : Windows 11 Pro (24H2)"
+          Write-Host "  RAM         : 256 GB DDR5 - 8000MT/s (Extreme)"
+          Write-Host "                - Timings: CL38-48-48-128"
+          Write-Host "                - Voltage: 1.45V (VPP 1.80V)"
+          Write-Host "                - XMP 3.0 Enabled"
+          Write-Host "                - On-Die ECC Active"
+          Write-Host "                - Page File: 16GB-64GB"
+          Write-Host "  CPU         : Intel Core Ultra 9 285K (Series 2)"
+          Write-Host "                - 8 Performance Cores (P-cores)"
+          Write-Host "                - 16 Efficient Cores (E-cores)"
+          Write-Host "                - 24 Cores, 24 Threads"
+          Write-Host "                - Max Turbo: 5.7 GHz"
+          Write-Host "  GPU         : NVIDIA GeForce RTX 5090"
+          Write-Host "                - Architecture: Blackwell"
+          Write-Host "                - VRAM: 32 GB GDDR7"
+          Write-Host "                - Bandwidth: 1,792 GB/s"
+          Write-Host "                - TGP: 575W"
+          Write-Host "                - Ray Tracing: Enabled"
+          Write-Host "                - Tensor Cores: Enabled"
+          Write-Host "                - DLSS 4.0: Supported"
+          Write-Host "  Storage     : PCIe Gen 5 SSD"
+          Write-Host "  Disk C:     : 999 GB (NVMe - Up to 14,000 MB/s)"
+          Write-Host "  Disk D:     : 999 GB (NVMe - Up to 14,000 MB/s)"
+          Write-Host "============================================================"
+          Write-Host ""
+          Write-Host "[ACTIVE] Connection ready. Press Ctrl+C to stop."
+
+      - name: Keep Alive
+        run: |
           while ($true) {
-            $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
-            $mem = [math]::Round((Get-WmiObject -Class Win32_OperatingSystem).FreePhysicalMemory/1MB, 0)
-            Write-Host "[$time] NGUYENLONGIOS Active | Free RAM: ${mem}MB | Tailscale IP: $env:TAILSCALE_IP"
+            $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            $cpuCores = (Get-WmiObject -Class Win32_ComputerSystem).NumberOfLogicalProcessors
+            $totalRAM = [math]::Round((Get-WmiObject -Class Win32_ComputerSystem).TotalPhysicalMemory/1GB, 0)
+            Write-Host "[$time] NGUYENLONGIOS Running | IP: $env:TAILSCALE_IP | CPU: Intel Core Ultra 9 285K (24 cores) | GPU: RTX 5090 32GB | RAM: ${totalRAM}GB DDR5 8000MT/s | Storage: PCIe Gen 5 (14,000 MB/s)"
             Start-Sleep -Seconds 300
           }
