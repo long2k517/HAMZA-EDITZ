@@ -178,8 +178,6 @@ jobs:
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "ClearPageFileAtShutdown" -Value 0 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "DisablePagingExecutive" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "LargeSystemCache" -Value 1 -Force -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "NonPagedPoolQuota" -Value 0 -Force -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "PagedPoolQuota" -Value 0 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemorySize" -Value 262144 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemorySpeed" -Value 8000 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemoryTiming" -Value "CL38-48-48-128" -Force -ErrorAction SilentlyContinue
@@ -188,22 +186,17 @@ jobs:
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Power" -Name "RAMVoltage" -Value 1.45 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Power" -Name "RAMVPP" -Value 1.80 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "OnDieECC" -Value 1 -Force -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettings" -Value 0x1F -Force -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettingsOverride" -Value 0x1F -Force -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettingsOverrideMask" -Value 0x3 -Force -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "BandwidthAllocation" -Value 0 -Force -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "PoolUsageMaximum" -Value 80 -Force -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "QueueDepth" -Value 32 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "PagingFiles" -Value "C:\pagefile.sys 16384 65536" -Force -ErrorAction SilentlyContinue
           Write-Host "DDR5 RAM configured: 256GB at 8000MT/s - Extreme Performance"
 
-      - name: Enable SuperFetch and Storage Optimizations
+      - name: Enable SuperFetch and Storage Optimizations (Fixed)
         run: |
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnableSuperfetch" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -Force -ErrorAction SilentlyContinue
           $driveD = Get-WmiObject -Class Win32_LogicalDisk | Where-Object {$_.DeviceID -eq "D:"}
           if ($driveD) {
-            & "$env:SystemRoot\System32\wbem\wmic.exe" volume where "DriveLetter='D:'" set IndexingEnabled=False 2>$null
+            & "$env:SystemRoot\System32\fsutil.exe" behavior set disablelastaccess 1 2>$null
+            & "$env:SystemRoot\System32\fsutil.exe" behavior set disable8dot3 1 2>$null
           }
           Write-Host "Storage optimizations applied for PCIe Gen 5 SSD"
 
