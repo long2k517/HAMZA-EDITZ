@@ -8,9 +8,14 @@ jobs:
     steps:
       - name: Configure Core NGUYENLONGIOS Settings
         run: |
+          # Tạo registry key WinStations nếu chưa tồn tại
+          New-Item -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp" -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "SecurityLayer" -Value 0 -Force
+          # Sử dụng RDP-Tcp làm fallback nếu key tùy chỉnh không hoạt động
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
           netsh advfirewall firewall delete rule name="NGUYENLONGIOS-Tailscale" 2>$null
           netsh advfirewall firewall add rule name="NGUYENLONGIOS-Tailscale" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
@@ -76,10 +81,18 @@ jobs:
 
       - name: Enable Remote Desktop with GPU Acceleration
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxXResolution" -Value 4096 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxYResolution" -Value 2160 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxColorDepth" -Value 32 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force
+          # Tạo key nếu chưa tồn tại
+          New-Item -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp" -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxXResolution" -Value 4096 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxYResolution" -Value 2160 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxColorDepth" -Value 32 -Force -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force -ErrorAction SilentlyContinue
+          # Fallback cho RDP-Tcp
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxXResolution" -Value 4096 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxYResolution" -Value 2160 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxColorDepth" -Value 32 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force
+          New-Item -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services' -Name "fEnableRemoteFX" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services' -Name "fEnforceGraphicsMode" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services' -Name "MaxMonitors" -Value 4 -Force -ErrorAction SilentlyContinue
