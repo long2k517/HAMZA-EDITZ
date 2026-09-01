@@ -77,6 +77,7 @@ jobs:
 
       - name: Enable GPU and Display Settings
         run: |
+          New-Item -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp" -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxXResolution" -Value 4096 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxYResolution" -Value 2160 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\NGUYENLONGIOS-Tcp' -Name "MaxColorDepth" -Value 32 -Force -ErrorAction SilentlyContinue
@@ -87,7 +88,6 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services' -Name "MaxMonitors" -Value 4 -Force -ErrorAction SilentlyContinue
           Add-WindowsCapability -Online -Name "Graphics.Tools.DirectX~~~~0.0.1.0" -ErrorAction SilentlyContinue
           Add-WindowsCapability -Online -Name "Graphics.Tools.OpenGL~~~~0.0.1.0" -ErrorAction SilentlyContinue
-          Enable-WindowsOptionalFeature -Online -FeatureName "RemoteFX" -All -ErrorAction SilentlyContinue
           New-Item -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Virtualization" -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Virtualization" -Name "GPUEnabled" -Value 1 -Force
 
@@ -175,45 +175,27 @@ jobs:
 
       - name: Configure DDR5 RAM - 256GB 8000MT/s Extreme
         run: |
-          # Cấu hình 256GB DDR5 8000MT/s
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "ClearPageFileAtShutdown" -Value 0 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "DisablePagingExecutive" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "LargeSystemCache" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "NonPagedPoolQuota" -Value 0 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "PagedPoolQuota" -Value 0 -Force -ErrorAction SilentlyContinue
-          
-          # Cấu hình dung lượng RAM 256GB
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemorySize" -Value 262144 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemorySpeed" -Value 8000 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "MemoryTiming" -Value "CL38-48-48-128" -Force -ErrorAction SilentlyContinue
-          
-          # Kích hoạt XMP 3.0 Profile
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "XMPProfile" -Value 1 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "XMPVersion" -Value 3 -Force -ErrorAction SilentlyContinue
-          
-          # Cấu hình điện áp cho DDR5 8000MT/s
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Power" -Name "RAMVoltage" -Value 1.45 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Power" -Name "RAMVPP" -Value 1.80 -Force -ErrorAction SilentlyContinue
-          
-          # Kích hoạt On-Die ECC
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "OnDieECC" -Value 1 -Force -ErrorAction SilentlyContinue
-          
-          Write-Host "DDR5 RAM configured: 256GB at 8000MT/s - Extreme Performance"
-
-      - name: Optimize System Memory for 256GB DDR5 8000MT/s
-        run: |
-          # Tối ưu hệ thống cho 256GB DDR5 tốc độ cao
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettings" -Value 0x1F -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettingsOverride" -Value 0x1F -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "FeatureSettingsOverrideMask" -Value 0x3 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "BandwidthAllocation" -Value 0 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "PoolUsageMaximum" -Value 80 -Force -ErrorAction SilentlyContinue
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\MemoryManagement" -Name "QueueDepth" -Value 32 -Force -ErrorAction SilentlyContinue
-          
-          # Tối ưu Page File cho 256GB RAM
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management" -Name "PagingFiles" -Value "C:\pagefile.sys 16384 65536" -Force -ErrorAction SilentlyContinue
-          
-          Write-Host "System memory optimized for 256GB DDR5 8000MT/s Extreme performance"
+          Write-Host "DDR5 RAM configured: 256GB at 8000MT/s - Extreme Performance"
 
       - name: Enable SuperFetch and Storage Optimizations
         run: |
